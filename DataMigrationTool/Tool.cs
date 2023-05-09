@@ -37,128 +37,114 @@ namespace ConsoleApp
              
             string sourceConnectionString = "Data Source=.;Initial Catalog=Live;Integrated Security=True";
             string destinationConnectionString = "Data Source=.;Initial Catalog=ksa;Integrated Security=True";
-                DataTable schema1 = GetTableSchema(sourceConnectionString, "test");
-                DataTable schema2 = GetTableSchema(destinationConnectionString, "test");
 
-               SchemaValidation schemaValidation = CompareTableSchema(schema1, schema2);
-
-                string sourceQuery = "SELECT * FROM test WHERE id = @id"; // Use a parameter for the id
-                string destinationQuery = "IF EXISTS (SELECT * FROM test WHERE id = @id) UPDATE test SET value = @value WHERE id = @id ELSE INSERT INTO test (id, value) VALUES (@id, @value)";
-
-                if (schemaValidation.IsIdentity)
+                using (SqlConnection sourceConnection = new SqlConnection(sourceConnectionString))
                 {
-                    using (SqlConnection sourceConnection = new SqlConnection(sourceConnectionString))
+                    sourceConnection.Open();
+
+                    using (SqlCommand sourceCommand = new SqlCommand())
                     {
-                        sourceConnection.Open();
+                        sourceCommand.Connection = sourceConnection;
 
-                        using (SqlCommand sourceCommand = new SqlCommand())
+                        sourceCommand.CommandText = "SELECT * FROM test WHERE Id = @id";
+
+                        sourceCommand.Parameters.AddWithValue("@id", inputSourceId);
+
+                        using (SqlDataReader sourceDataReader = sourceCommand.ExecuteReader())
                         {
-                            sourceCommand.Connection = sourceConnection;
 
-                            sourceCommand.CommandText = "SELECT * FROM test WHERE Id = @id";
 
-                            sourceCommand.Parameters.AddWithValue("@id", inputSourceId);
-
-                            using (SqlDataReader sourceDataReader = sourceCommand.ExecuteReader())
+                            using (SqlConnection destinationConnection = new SqlConnection(destinationConnectionString))
                             {
+                                destinationConnection.Open();
 
-
-                                using (SqlConnection destinationConnection = new SqlConnection(destinationConnectionString))
+                                using (SqlCommand destinationCommand = new SqlCommand())
                                 {
-                                    destinationConnection.Open();
+                                    destinationCommand.Connection = destinationConnection;
 
-                                    using (SqlCommand destinationCommand = new SqlCommand())
+                                    int columnCount = sourceDataReader.FieldCount;
+
+                                    Dictionary<string, object> sourceDictionary = new Dictionary<string, object>();
+                                    Dictionary<string, object> destinationDictionary = new Dictionary<string, object>();
+
+                                    if (sourceDataReader.Read())
                                     {
-                                        destinationCommand.Connection = destinationConnection;
+                                        for (int i = 0; i < columnCount; i++)
+                                            sourceDictionary.Add(sourceDataReader.GetName(i), sourceDataReader.GetValue(i));
+                                    }
 
-                                        int columnCount = sourceDataReader.FieldCount;
+                                    destinationCommand.CommandText = "SELECT * FROM test WHERE " + inputSourceColumn + "= @id";
 
-                                     Dictionary<string,object> sourceDictionary = new Dictionary<string,object>();
-                                     Dictionary<string,object> destinationDictionary = new Dictionary<string,object>();
+                                    destinationCommand.Parameters.AddWithValue("@id", inputSourceId);
 
-                                        if (sourceDataReader.Read())
+                                    using (SqlDataReader destinationDataReader = destinationCommand.ExecuteReader())
+                                    {
+
+                                        
+                                        if(IsSchemaMatches(sourceDataReader,destinationDataReader))
+                                        {
+
+                                        }
+
+                                        if (destinationDataReader.Read())
                                         {
                                             for (int i = 0; i < columnCount; i++)
-                                                sourceDictionary.Add(sourceDataReader.GetName(i),sourceDataReader.GetValue(i));
-                                        }
-
-                                        destinationCommand.CommandText = "SELECT * FROM test WHERE "+ inputSourceColumn + "= @id";
-
-                                        destinationCommand.Parameters.AddWithValue("@id", inputSourceId);
-
-                                        using (SqlDataReader destinationDataReader = destinationCommand.ExecuteReader())
-                                        {
-
-                                            if (destinationDataReader.Read())
                                             {
-                                                for (int i = 0; i < columnCount; i++)
-                                                {
-                                                    destinationDictionary.Add(destinationDataReader.GetName(i), destinationDataReader.GetValue(i));
-                                                }
+                                                destinationDictionary.Add(destinationDataReader.GetName(i), destinationDataReader.GetValue(i));
                                             }
                                         }
+
                                         StringBuilder destinationCommandText = new StringBuilder();
                                         if (destinationDictionary.Count == 0)
                                         {
 
                                         }
                                         else
-                                        { 
+                                        {
                                             destinationCommandText.Append("UPDATE test set ");
 
-                                        var keys = sourceDictionary.Keys.Where(key => sourceDictionary[key] != destinationDictionary[key]).ToList();
+                                            var keys = sourceDictionary.Keys.Where(key => sourceDictionary[key] != destinationDictionary[key]).ToList();
 
-                                        for (int i = 0; i < keys.Count; i++)
-                                        {
+                                            for (int i = 0; i < keys.Count; i++)
+                                            {
                                                 if (keys[i] == inputSourceColumn)
                                                     continue;
-                                            string key = keys[i];
-                                            object value = sourceDictionary[key];
-                                                
-                                                    destinationCommandText.Append(key + " = @" + key);
-                                                    destinationCommand.Parameters.AddWithValue("@"+ key, value);
-                                            if (i < keys.Count - 1)
-                                                destinationCommandText.Append(", ");
+                                                string key = keys[i];
+                                                object value = sourceDictionary[key];
+
+                                                destinationCommandText.Append(key + " = @" + key);
+                                                destinationCommand.Parameters.AddWithValue("@" + key, value);
+                                                if (i < keys.Count - 1)
+                                                    destinationCommandText.Append(", ");
+                                            }
+
+
                                         }
 
-                                        
-                                        }
 
-                                        
 
                                         destinationCommandText.Append(" where " + inputDestinationColumn + " = @id");
-                                            
-                                            destinationCommand.CommandText = destinationCommandText.ToString();
-                                            
+
+                                        destinationCommand.CommandText = destinationCommandText.ToString();
 
 
-                                            int rowsAffected = destinationCommand.ExecuteNonQuery();
 
-destinationCommand.Parameters.Clear();
-                                            Console.WriteLine($"{rowsAffected} row inserted into DestinationTable based on matching id value.");
+                                        int rowsAffected = destinationCommand.ExecuteNonQuery();
 
-                                        }
-
-
+                                        destinationCommand.Parameters.Clear();
+                                        Console.WriteLine($"{rowsAffected} row inserted into DestinationTable based on matching id value.");
                                     }
+
                                 }
 
+
                             }
-
-
                         }
 
+                    }
+
+
                 }
-                else
-                {
-
-                }
-
-
-
-
-
-
             }
             catch (Exception ex)
             {
@@ -166,43 +152,23 @@ destinationCommand.Parameters.Clear();
             }
         }
 
-        static DataTable GetTableSchema(string connectionString, string tableName)
+     
+        static bool IsSchemaMatches(SqlDataReader sourceDataReader,SqlDataReader destinationDataReader)
         {
-            using (SqlConnection connection = new SqlConnection(connectionString))
-            {
-                connection.Open();
-                SqlCommand command = new SqlCommand("SELECT * FROM " + tableName, connection);
-                SqlDataReader reader = command.ExecuteReader(CommandBehavior.SchemaOnly);
-                DataTable schema = reader.GetSchemaTable();
-                reader.Close();
-                return schema;
-            }
+            DataTable sourceSchema = sourceDataReader.GetSchemaTable();
+            DataTable destinationSchema = destinationDataReader.GetSchemaTable();
+
+            DataView sourceView = new DataView(sourceSchema);
+            sourceView.Sort = "ColumnName";
+            DataTable sortedSourceTable = sourceView.ToTable();
+
+            DataView destView = new DataView(destinationSchema);
+            destView.Sort = "ColumnName";
+            DataTable sortedDestTable = destView.ToTable();
+
+            return true;
         }
 
-        static SchemaValidation CompareTableSchema(DataTable schema1, DataTable schema2)
-        {
-            SchemaValidation schemaValidation = new SchemaValidation();
-
-           List<string> sourceColumns  = schema1.AsEnumerable().Select(row => Convert.ToString(row["ColumnName"])).ToList();
-
-           List<string> destinationColumns  = schema2.AsEnumerable().Select(row => Convert.ToString(row["ColumnName"])).ToList();
-
-            schemaValidation.IsSameColumnns = sourceColumns.SequenceEqual(destinationColumns);
-
-           List<string> sourceDatatypes = schema1.AsEnumerable().Select(row => Convert.ToString(row["DataType"])).ToList();
-
-           List<string> destinationDataypes = schema2.AsEnumerable().Select(row => Convert.ToString(row["DataType"])).ToList();
-
-            schemaValidation.IsSameDatatypes = sourceDatatypes.SequenceEqual(destinationDataypes);
-
-            List<string> sourceIdentity = schema1.AsEnumerable().Select(row => Convert.ToString(row["IsIdentity"])).ToList();
-
-            List<string> destinationIdentity = schema1.AsEnumerable().Select(row => Convert.ToString(row["IsIdentity"])).ToList();
-
-            schemaValidation.IsIdentity = sourceIdentity.SequenceEqual(destinationIdentity);
-
-            return schemaValidation;
-        }
    
 
     }
