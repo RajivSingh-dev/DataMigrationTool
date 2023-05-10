@@ -1,5 +1,6 @@
 ﻿
 using DataMigrationTool;
+using Microsoft.Extensions.Primitives;
 using System;
 using System.Data;
 using System.Data.SqlClient;
@@ -28,7 +29,7 @@ namespace ConsoleApp
             string inputDestinationTable = "test";
             string inputSourceColumn = "Id";
             string inputDestinationColumn = "Id";
-            int inputSourceId = 2; 
+            int inputSourceId = 3; 
 
 
 
@@ -80,11 +81,16 @@ namespace ConsoleApp
                                     using (SqlDataReader destinationDataReader = destinationCommand.ExecuteReader())
                                     {
 
-                                        
+                                        StringBuilder destinationCommandText = new StringBuilder();
                                         if(IsSchemaMatches(sourceDataReader,destinationDataReader))
                                         {
 
+                                            
+
+
+
                                         }
+                                        
 
                                         if (destinationDataReader.Read())
                                         {
@@ -92,15 +98,6 @@ namespace ConsoleApp
                                             {
                                                 destinationDictionary.Add(destinationDataReader.GetName(i), destinationDataReader.GetValue(i));
                                             }
-                                        }
-
-                                        StringBuilder destinationCommandText = new StringBuilder();
-                                        if (destinationDictionary.Count == 0)
-                                        {
-
-                                        }
-                                        else
-                                        {
                                             destinationCommandText.Append("UPDATE test set ");
 
                                             var keys = sourceDictionary.Keys.Where(key => sourceDictionary[key] != destinationDictionary[key]).ToList();
@@ -118,14 +115,33 @@ namespace ConsoleApp
                                                     destinationCommandText.Append(", ");
                                             }
 
+                                            destinationCommandText.Append(" where " + inputDestinationColumn + " = @id");
 
+                                            destinationCommand.CommandText = destinationCommandText.ToString();
+                                        }
+                                        else
+                                        {
+
+                                            List<string> columnNames = new List<string>();
+                                            List<string> parameterNames = new List<string>();
+                                            for (int i = 0; i < columnCount; i++)
+                                            {
+                                                columnNames.Add(sourceDataReader.GetName(i));
+                                                parameterNames.Add("@p" + i);
+                                            }
+
+                                            destinationCommandText.Append("Insert into ksa (");
+                                            destinationCommandText.Append(string.Join(", ", columnNames));
+                                            destinationCommandText.Append(") values (");
+                                            destinationCommandText.Append(string.Join(", ", parameterNames));
+                                            destinationCommandText.Append(");");
+
+                                            for (int i = 0; i < columnCount; i++)
+                                            {
+                                                destinationCommand.Parameters.AddWithValue(parameterNames[i], sourceDataReader.GetValue(i));
+                                            }
                                         }
 
-
-
-                                        destinationCommandText.Append(" where " + inputDestinationColumn + " = @id");
-
-                                        destinationCommand.CommandText = destinationCommandText.ToString();
 
 
 
@@ -155,14 +171,13 @@ namespace ConsoleApp
      
         static bool IsSchemaMatches(SqlDataReader sourceDataReader,SqlDataReader destinationDataReader)
         {
-            DataTable sourceSchema = sourceDataReader.GetSchemaTable();
-            DataTable destinationSchema = destinationDataReader.GetSchemaTable();
 
-            DataView sourceView = new DataView(sourceSchema);
+
+            DataView sourceView = new DataView(sourceDataReader.GetSchemaTable());
             sourceView.Sort = "ColumnName";
             DataTable sortedSourceTable = sourceView.ToTable();
 
-            DataView destView = new DataView(destinationSchema);
+            DataView destView = new DataView(destinationDataReader.GetSchemaTable());
             destView.Sort = "ColumnName";
             DataTable sortedDestTable = destView.ToTable();
 
