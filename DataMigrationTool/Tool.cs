@@ -16,23 +16,17 @@ namespace ConsoleApp
 
         public void Migrate() {
 
+            
             Console.WriteLine("Enter source table name:");
-            string inputSourceTable = Console.ReadLine();
+            string inputSourceTable = Console.ReadLine().Trim();
 
-            Console.WriteLine("Enter destination table name:");
-            string inputDestinationTable = Console.ReadLine();
 
-            if(!inputSourceTable.Equals(inputDestinationTable))
-                Console.WriteLine($"Table name does not match. Source: {inputSourceTable}, Destination: {inputDestinationTable}");
+            string inputDestinationTable = GetStringInput("Enter destination table name:", "Is destination table and source table are the same. Do you want to continue? (y/n)",inputSourceTable);
 
             Console.WriteLine("Enter source column name:");
-            string inputSourceColumn = Console.ReadLine();
-            
-            Console.WriteLine("Enter destination column name:");
-            string inputDestinationColumn = Console.ReadLine();
+            string inputSourceColumn = Console.ReadLine().Trim();
 
-            if (!inputSourceColumn.Equals(inputDestinationColumn))
-                Console.WriteLine($"Column name does not match. Source: {inputSourceColumn}, Destination: {inputDestinationColumn}");
+            string inputDestinationColumn = GetStringInput("Enter destination column name:", "Is destination column and source column are the same. Do you want to continue? (y/n)",inputSourceColumn);
 
             Console.WriteLine("Enter source id:");
             int inputSourceId;
@@ -82,7 +76,7 @@ namespace ConsoleApp
                     {
 
                         StringBuilder destinationWriteCommandText = new StringBuilder();
-                        if (IsSchemaMatches(sourceDataReader, destinationDataReader, inputSourceColumn, out string isIdentity))
+                        if (IsSchemaMatches(sourceDataReader, destinationDataReader, out string isIdentity))
                         {
                             if (destinationDataReader.Read())
                             {
@@ -102,25 +96,25 @@ namespace ConsoleApp
                                                 destinationWriteCommand.Parameters.AddWithValue("@p" + i, sourceDataReader[colName]);
                                                 columnsToUpdate.Append(",");
                                             }
-
                                         }
-
                                     if (columnsToUpdate.Length > 0)
                                     {
                                         columnsToUpdate.Length -= 1;
                                         destinationWriteCommandText.Append(columnsToUpdate);
                                         destinationWriteCommandText.Append(" WHERE " + inputDestinationColumn + "= @id");
                                         destinationWriteCommand.CommandText = destinationWriteCommandText.ToString();
+                                        rowsAffected = destinationWriteCommand.ExecuteNonQuery();
                                     }
                                     else
                                         Console.WriteLine("Destination row contains same value");
-                                rowsAffected = destinationWriteCommand.ExecuteNonQuery();
                                 }
                                 else
                                 {
-                                    Console.WriteLine("Destination column should be identity");
+                                    Console.WriteLine($"Row is already present with given {inputSourceColumn} {inputSourceId} and for update Destination column should be identity");
                                 }
-                                
+                                destinationCommand.Parameters.Clear();
+                                Console.WriteLine($"{rowsAffected} row updated into DestinationTable based on matching {inputSourceColumn} value {inputSourceId}");
+
                             }
                             else
                             {
@@ -137,7 +131,7 @@ namespace ConsoleApp
                                     }
                                 }
 
-                                destinationWriteCommandText.Append("Insert into " + inputDestinationTable +" (");
+                                destinationWriteCommandText.Append("Insert into " + inputDestinationTable + " (");
                                 destinationWriteCommandText.Append(string.Join(", ", columnNames));
                                 destinationWriteCommandText.Append(") values (");
                                 destinationWriteCommandText.Append(string.Join(", ", parameterNames));
@@ -151,12 +145,12 @@ namespace ConsoleApp
                                     {
                                         for (int i = 0; i < parameterNames.Count; i++)
                                             destinationWriteCommand.Parameters.AddWithValue(parameterNames[i], sourceDataReader[columnNames[i]]);
-
                                         rowsAffected += destinationWriteCommand.ExecuteNonQuery();
                                         destinationWriteCommand.Parameters.Clear();
                                     }
-
                                 }
+                                destinationCommand.Parameters.Clear();
+                                Console.WriteLine($"{rowsAffected} row inserted into DestinationTable based on matching {inputSourceColumn} value {inputSourceId}");
                             }
                         }
                         else
@@ -164,9 +158,6 @@ namespace ConsoleApp
                             Console.WriteLine("Schema not matching");
                         }
                     }
-                    destinationCommand.Parameters.Clear();
-                    Console.WriteLine($"{rowsAffected} row inserted into DestinationTable based on matching id value.");
-
 
 
                 }
@@ -187,7 +178,7 @@ namespace ConsoleApp
             }
         }
 
-         bool IsSchemaMatches(SqlDataReader sourceDataReader, SqlDataReader destinationDataReader, string sourceColumn, out string isIdentity)
+         bool IsSchemaMatches(SqlDataReader sourceDataReader, SqlDataReader destinationDataReader, out string isIdentity)
         {
             isIdentity = "";
 
@@ -224,6 +215,26 @@ namespace ConsoleApp
 
 
             return rValue;
+        }
+
+        string GetStringInput(string inputText, string message,string inputSource)
+        {
+            string inputValue = inputSource;
+
+
+            Console.WriteLine(message);
+            string inputAnswer = Console.ReadLine().Trim();
+
+            if (inputAnswer.Equals("y", StringComparison.OrdinalIgnoreCase))
+            {
+                return inputValue;
+            }
+            else 
+            {
+                Console.WriteLine(inputText);
+                inputValue = Console.ReadLine().Trim();
+                return inputValue;
+            }
         }
 
 
