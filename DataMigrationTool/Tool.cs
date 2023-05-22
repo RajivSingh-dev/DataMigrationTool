@@ -1,214 +1,222 @@
-﻿
-using DataMigrationTool;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
-using Microsoft.Extensions.Primitives;
-using System;
-using System.Data;
+﻿using Microsoft.Extensions.Configuration;
 using System.Data.Common;
 using System.Data.SqlClient;
-using System.Dynamic;
-using System.Reflection.PortableExecutable;
-using System.Resources;
 using System.Text;
 
 namespace ConsoleApp
 {
-    class Test
+    class Tool
     {
-        static void Main(string[] args)
+        private readonly IConfiguration _configuration;
+
+        public Tool(IConfiguration configuration)
         {
-            /*Console.WriteLine("Enter the source table name:");
+            _configuration = configuration;
+        }
+
+        public void Migrate() {
+
+            Console.WriteLine("Enter source table name:");
             string inputSourceTable = Console.ReadLine();
-            Console.WriteLine("Enter the destination table name:");
+
+            Console.WriteLine("Enter destination table name:");
             string inputDestinationTable = Console.ReadLine();
-            Console.WriteLine("Enter the source column name:");
+
+            if(!inputSourceTable.Equals(inputDestinationTable))
+                Console.WriteLine($"Table name does not match. Source: {inputSourceTable}, Destination: {inputDestinationTable}");
+
+            Console.WriteLine("Enter source column name:");
             string inputSourceColumn = Console.ReadLine();
-            Console.WriteLine("Enter the destination column name:");
+            
+            Console.WriteLine("Enter destination column name:");
             string inputDestinationColumn = Console.ReadLine();
-            Console.WriteLine("Enter the source ID:");
-            string inputSourceId = Console.ReadLine();*/
 
-            string inputSourceTable = "test";
-            string inputDestinationTable = "test";
-            string inputSourceColumn = "Id";
-            string inputDestinationColumn = "Id";
-            int inputSourceId = 10;
+            if (!inputSourceColumn.Equals(inputDestinationColumn))
+                Console.WriteLine($"Column name does not match. Source: {inputSourceColumn}, Destination: {inputDestinationColumn}");
 
+            Console.WriteLine("Enter source id:");
+            int inputSourceId;
+            int.TryParse(Console.ReadLine(), out inputSourceId);
 
+            SqlConnection sourceConnection = null;
+            SqlConnection destinationConnection = null;
+            SqlConnection destinationWriteConnection = null;
+
+            SqlCommand  sourceCommand = null;
+            SqlCommand destinationCommand = null;
+            SqlCommand destinationWriteCommand = null;
 
             try
             {
 
-                string sourceConnectionString = "Data Source=.;Initial Catalog=Live;Integrated Security=True";
-                string destinationConnectionString = "Data Source=.;Initial Catalog=ksa;Integrated Security=True";
+                string sourceConnectionString = _configuration.GetConnectionString("sourceConnectionString");
+                string destinationConnectionString = _configuration.GetConnectionString("destinationConnectionString");
 
-                using (SqlConnection sourceConnection = new SqlConnection(sourceConnectionString))
+                sourceConnection = new SqlConnection(sourceConnectionString);
+                sourceConnection.Open();
+
+                destinationConnection = new SqlConnection(destinationConnectionString);
+                destinationConnection.Open();
+
+                destinationWriteConnection = new SqlConnection(destinationConnectionString);
+                destinationWriteConnection.Open();
+
+
+                 sourceCommand = sourceConnection.CreateCommand();
+                 destinationCommand = destinationConnection.CreateCommand();
+                 destinationWriteCommand = destinationWriteConnection.CreateCommand();
+
+                sourceCommand.CommandText = "SELECT * FROM " + inputSourceTable + " WHERE " + inputSourceColumn + " = @id";
+                sourceCommand.Parameters.AddWithValue("@id", inputSourceId);
+
+                using (SqlDataReader sourceDataReader = sourceCommand.ExecuteReader())
                 {
-                    sourceConnection.Open();
 
-                    using (SqlCommand sourceCommand = new SqlCommand())
+                    int rowsAffected = 0;
+                    int columnCount = sourceDataReader.FieldCount;
+                    destinationCommand.CommandText = "SELECT * FROM " + inputDestinationTable + " WHERE " + inputSourceColumn + "= @id";
+                    destinationCommand.Parameters.AddWithValue("@id", inputSourceId);
+                    destinationWriteCommand.Parameters.AddWithValue("@id", inputSourceId);
+
+                    using (SqlDataReader destinationDataReader = destinationCommand.ExecuteReader())
                     {
-                        sourceCommand.Connection = sourceConnection;
 
-                        sourceCommand.CommandText = "SELECT * FROM "+ inputSourceTable +" WHERE Id = @id";
-
-                        sourceCommand.Parameters.AddWithValue("@id", inputSourceId);
-
-                        using (SqlDataReader sourceDataReader = sourceCommand.ExecuteReader())
+                        StringBuilder destinationWriteCommandText = new StringBuilder();
+                        if (IsSchemaMatches(sourceDataReader, destinationDataReader, inputSourceColumn, out string isIdentity))
                         {
-
-
-                            using (SqlConnection destinationConnection = new SqlConnection(destinationConnectionString))
+                            if (destinationDataReader.Read())
                             {
-                                destinationConnection.Open();
-
-                                using (SqlCommand destinationCommand = new SqlCommand())
+                                if (isIdentity.Equals(inputSourceColumn))
                                 {
-                                    destinationCommand.Connection = destinationConnection;
+                                    destinationWriteCommandText.Append("UPDATE " + inputDestinationTable + " SET ");
 
-                                    int columnCount = sourceDataReader.FieldCount;
-                                    destinationCommand.CommandText = "SELECT * FROM "+ inputDestinationTable + " WHERE " + inputSourceColumn + "= @id";
-                                    destinationCommand.Parameters.AddWithValue("@id", inputSourceId);
+                                    StringBuilder columnsToUpdate = new StringBuilder();
 
-                                    using (SqlDataReader destinationDataReader = destinationCommand.ExecuteReader())
-                                    {
-
-                                        StringBuilder destinationCommandText = new StringBuilder();
-
-                                        if (IsSchemaMatches(sourceDataReader, destinationDataReader, inputSourceColumn, out bool isIdentity))
+                                    if (sourceDataReader.Read())
+                                        for (int i = 0; i < columnCount; i++)
                                         {
-                                           
-                                            if (destinationDataReader.Read())
+                                            string colName = sourceDataReader.GetName(i);
+                                            if (!sourceDataReader[colName].Equals(destinationDataReader[colName]))
                                             {
-
-                                                if (isIdentity)
-                                                {
-                                                    destinationCommandText.Append("UPDATE "+ inputDestinationTable + " SET ");
-
-                                                    StringBuilder columnsToUpdate = new StringBuilder();
-
-                                                    if(sourceDataReader.Read())
-                                                    for (int i = 0; i < columnCount; i++)
-                                                    {
-                                                        string colName = sourceDataReader.GetName(i);
-                                                        if (!sourceDataReader[colName].Equals(destinationDataReader[colName]))
-                                                        {
-                                                            columnsToUpdate.Append(colName + " = " + "@p" + i);
-                                                            destinationCommand.Parameters.AddWithValue("@p" + i, sourceDataReader[colName]);
-                                                            columnsToUpdate.Append(",");
-                                                        }
-
-                                                    }
-
-                                                    if(columnsToUpdate.Length > 0)
-                                                    {
-                                                       columnsToUpdate.Length -= 1;
-                                                       destinationCommandText.Append(columnsToUpdate);
-                                                       destinationCommandText.Append(" WHERE " + inputSourceColumn + "= @id");
-                                                       destinationCommand.CommandText = destinationCommandText.ToString(); 
-                                                    }
-                                                    else
-                                                      Console.WriteLine("Destination row contains same value");
-
-                                                   
-                                                }
+                                                columnsToUpdate.Append(colName + " = " + "@p" + i);
+                                                destinationWriteCommand.Parameters.AddWithValue("@p" + i, sourceDataReader[colName]);
+                                                columnsToUpdate.Append(",");
                                             }
-                                            else
-                                            {  
-                                                List<string> columnNames = new List<string>();
-                                                List<string> parameterNames = new List<string>();
 
-
-                                                for (int i = 0; i < columnCount; i++)
-                                                    {
-                                                        if (isIdentity && sourceDataReader.GetName(i).Equals(inputSourceColumn))
-                                                            continue;
-                                                        columnNames.Add(sourceDataReader.GetName(i));
-                                                        parameterNames.Add("@p" + i);
-                                                    }
-
-                                                destinationCommandText.Append("Insert into test (");
-                                                destinationCommandText.Append(string.Join(", ", columnNames));
-                                                destinationCommandText.Append(") values (");
-                                                destinationCommandText.Append(string.Join(", ", parameterNames));
-                                                destinationCommandText.Append(");");
-
-                                                destinationCommand.CommandText = destinationCommandText.ToString();
-
-                                                while (sourceDataReader.Read())
-                                                {
-                                                    int j = 0;
-                                                    for (int i = 0; i < columnCount; i++,j++)
-                                                    {
-                                                        if (isIdentity && sourceDataReader.GetOrdinal(inputSourceColumn) == i)
-                                                        {
-                                                            j--;
-                                                            continue; 
-                                                        }
-                                                        destinationCommand.Parameters.AddWithValue(parameterNames[j], sourceDataReader[columnNames[j]]);
-                                                    }
-                                                    destinationCommand.ExecuteNonQuery();
-                                                }
-                                            }
                                         }
-                                        else
-                                        {
-                                            Console.WriteLine("Schema not matching");
-                                        }
+
+                                    if (columnsToUpdate.Length > 0)
+                                    {
+                                        columnsToUpdate.Length -= 1;
+                                        destinationWriteCommandText.Append(columnsToUpdate);
+                                        destinationWriteCommandText.Append(" WHERE " + inputDestinationColumn + "= @id");
+                                        destinationWriteCommand.CommandText = destinationWriteCommandText.ToString();
                                     }
-                                    int rowsAffected = destinationCommand.ExecuteNonQuery();
-                                    destinationCommand.Parameters.Clear();
-                                    Console.WriteLine($"{rowsAffected} row inserted into DestinationTable based on matching id value.");
+                                    else
+                                        Console.WriteLine("Destination row contains same value");
+                                rowsAffected = destinationWriteCommand.ExecuteNonQuery();
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Destination column should be identity");
+                                }
+                                
+                            }
+                            else
+                            {
+
+                                List<string> columnNames = new List<string>();
+                                List<string> parameterNames = new List<string>();
+
+                                for (int i = 0; i < columnCount; i++)
+                                {
+                                    if (!isIdentity.Equals(sourceDataReader.GetName(i)))
+                                    {
+                                        columnNames.Add(sourceDataReader.GetName(i));
+                                        parameterNames.Add("@p" + i);
+                                    }
+                                }
+
+                                destinationWriteCommandText.Append("Insert into " + inputDestinationTable +" (");
+                                destinationWriteCommandText.Append(string.Join(", ", columnNames));
+                                destinationWriteCommandText.Append(") values (");
+                                destinationWriteCommandText.Append(string.Join(", ", parameterNames));
+                                destinationWriteCommandText.Append(");");
+
+                                destinationWriteCommand.CommandText = destinationWriteCommandText.ToString();
+
+                                if (sourceDataReader.HasRows)
+                                {
+                                    while (sourceDataReader.Read())
+                                    {
+                                        for (int i = 0; i < parameterNames.Count; i++)
+                                            destinationWriteCommand.Parameters.AddWithValue(parameterNames[i], sourceDataReader[columnNames[i]]);
+
+                                        rowsAffected += destinationWriteCommand.ExecuteNonQuery();
+                                        destinationWriteCommand.Parameters.Clear();
+                                    }
 
                                 }
                             }
                         }
+                        else
+                        {
+                            Console.WriteLine("Schema not matching");
+                        }
                     }
+                    destinationCommand.Parameters.Clear();
+                    Console.WriteLine($"{rowsAffected} row inserted into DestinationTable based on matching id value.");
+
+
+
                 }
+
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"An error occurred: {ex.Message}");
             }
+            finally
+            {
+                if(sourceConnection != null)
+                  sourceConnection.Dispose();
+                if(destinationConnection != null)
+                  destinationConnection.Dispose();
+                if(destinationWriteConnection!= null) 
+                  destinationWriteConnection.Dispose();
+            }
         }
 
-
-        static bool IsSchemaMatches(SqlDataReader sourceDataReader, SqlDataReader destinationDataReader,string sourceColumn, out bool isIdentity)
+         bool IsSchemaMatches(SqlDataReader sourceDataReader, SqlDataReader destinationDataReader, string sourceColumn, out string isIdentity)
         {
-            isIdentity = false;
+            isIdentity = "";
 
             bool rValue = false;
 
-            DataTable sourceTable = sourceDataReader.GetSchemaTable();
-            DataTable destTable = destinationDataReader.GetSchemaTable();
+
 
             IList<DbColumn> sourceColumns = sourceDataReader.GetColumnSchema();
             IList<DbColumn> destColumns = destinationDataReader.GetColumnSchema();
 
-            if(sourceColumns.Count != destColumns.Count)
+            if (sourceColumns.Count != destColumns.Count)
             { return false; }
 
-            foreach(DbColumn srcColumn in sourceColumns) 
+            foreach (DbColumn srcColumn in sourceColumns)
             {
-                rValue= false;
-                foreach (DbColumn destColumn in destColumns )
+                rValue = false;
+                foreach (DbColumn destColumn in destColumns)
                 {
-                    if(srcColumn.ColumnName.Equals(destColumn.ColumnName)) 
-                    {
-                        if(srcColumn.IsIdentity.GetValueOrDefault() && destColumn.IsIdentity.GetValueOrDefault())
-                            isIdentity= true;
+                    if (srcColumn.IsIdentity.GetValueOrDefault() && destColumn.IsIdentity.GetValueOrDefault())
+                        isIdentity = destColumn.ColumnName;
 
-                       if (
-                            !srcColumn.ColumnSize.Equals(destColumn.ColumnSize) || 
-                            !srcColumn.NumericPrecision.Equals(destColumn.NumericPrecision) || 
-                            !srcColumn.NumericScale.Equals(destColumn.NumericScale) || 
-                            !srcColumn.DataTypeName.Equals(destColumn.DataTypeName) || 
-                            !srcColumn.IsIdentity.Equals(destColumn.IsIdentity) 
-                            )
-                           break;
-                    
-                    }
-
+                    if (
+                         !srcColumn.ColumnSize.Equals(destColumn.ColumnSize) ||
+                         !srcColumn.NumericPrecision.Equals(destColumn.NumericPrecision) ||
+                         !srcColumn.NumericScale.Equals(destColumn.NumericScale) ||
+                         !srcColumn.DataTypeName.Equals(destColumn.DataTypeName) ||
+                         !srcColumn.IsIdentity.Equals(destColumn.IsIdentity)
+                         )
+                        break;
                 }
 
                 rValue = true;
@@ -217,8 +225,6 @@ namespace ConsoleApp
 
             return rValue;
         }
-
-
 
 
     }
